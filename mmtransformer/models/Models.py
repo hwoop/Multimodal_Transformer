@@ -74,30 +74,30 @@ def positionalencoding1d(d_model, length):
 
     return pe
 
-class multimodal_transformer(nn.Module):
+class mm_transformer(nn.Module):
     # time series on transformer, consider position embedding, use CLS
     # text, mbert
-    def __init__(self, model_name, model_type, BioBert, TSModel, device):
-        super(multimodal_transformer, self).__init__()
+    def __init__(self, txt_model_type, model_usage, BioBert, ts_model_type, device):
+        super(mm_transformer, self).__init__()
 
         # universal setup
-        self.TSModel = TSModel
+        self.TSModel = ts_model_type
         time_series_size = 256
 
         self.BioBert = BioBert
-        self.model_name = model_name
-        self.model_type = model_type
+        self.txt_model_type = txt_model_type
+        self.model_usage = model_usage
         self.criterion= nn.BCEWithLogitsLoss()
         self.device = device
 
 
         # clinical notes
-        if model_name == 'BioBert':
+        if txt_model_type == 'BioBert':
             print('Using BioBert model')
             text_embed_size =  BioBert.config.hidden_size 
 
         # clinical variables - TS
-        if TSModel == 'Transformer':
+        if ts_model_type == 'Transformer':
             self.proj_size = 512 # project X to proj_size
             self.ts_toksample = nn.Sequential(
                 nn.Linear(76, self.proj_size//2, bias=False), # transfer
@@ -134,13 +134,12 @@ class multimodal_transformer(nn.Module):
             nn.init.xavier_uniform_(p)
         self.final_act = torch.sigmoid
 
-        
-    def forward(self, X, text, attns, times):
+    def forward_internal(self, X, text, attns, times):
         # if model_type is baseline we only use the time-series part
         
         # clinical notes
-        if self.model_type != 'baseline':
-            if self.model_name == 'BioBert':
+        if self.model_usage != 'baseline':
+            if self.txt_model_type == 'BioBert':
                 ### inhour mean
 
                 # For the models where we take the mean of embeddings generated for several notes that belong to a same hour, we loop through the notes and take their mean
@@ -203,24 +202,16 @@ class multimodal_transformer(nn.Module):
                 # deleting some tensors to free up some space
                 del txt_arr
 
-
-        # Getting the time-series part embedding
-        ## concatenate ts with text embedding before lstm
-        text_embeddings_ts = text_embeddings # (batch_size, 48, 768)
-        text_embeddings_mean = torch.mean(text_embeddings, axis=1) # (batch_size, 768)
-        del text_embeddings
-        
-
-
         # clinical variable 
         if self.TSModel == 'Transformer':
             ## upsample
             X = self.ts_toksample(X) # (batch, 48, 76) -> (batch_size, 48, proj_size)
-            text_embeddings_ts = self.txt_toksample(text_embeddings_ts) #(batch_size, 48, 768) -> (batch_size, 48, 768)
+            ts_embeddings = X
 
-            X = torch.cat([X, text_embeddings_ts], dim = 2) # (batch_size, 48, proj_size+768)
+            upsampled_text_embeddings = self.txt_toksample(text_embeddings) #(batch_size, 48, 768) -> (batch_size, 48, 768)
+
+            X = torch.cat([X, upsampled_text_embeddings], dim = 2) # (batch_size, 48, proj_size+768)
             X = self.toksample(X) # (batch_size, 48, emb_dim)
-
 
             ## position embedding
             position_embeddings = self.position_embeddings.unsqueeze(0) # (1, 49, emb_dimn)
@@ -233,12 +224,21 @@ class multimodal_transformer(nn.Module):
             embeddings = self.LayerNorm(X)
 
             rnn_outputs = self.transformer_encoder(embeddings) # (batch_size, 49, self.emb_dim)
-            mean_rnn_outputs = rnn_outputs[:, 0, :] # (batch_size, self.emb_dim)
 
+        return ts_embeddings, text_embeddings, rnn_outputs
+
+
+    def forward(self, X, text, attns, times):
+        _, text_embeddings, rnn_outputs = self.forward_internal(X, text, attns, times)
+
+        # Getting the time-series part embedding
+        ## concatenate ts with text embedding before lstm
+        mean_text_embeddings = torch.mean(text_embeddings, axis=1) # (batch_size, 768)
+        mean_rnn_outputs = rnn_outputs[:, 0, :] # (batch_size, self.emb_dim)
 
         # Classifier - Final FC layer
         # Concatenating time-series and text embedding
-        logit_X = torch.cat((text_embeddings_mean.float(), mean_rnn_outputs.float()), 1)
+        logit_X = torch.cat((mean_text_embeddings.float(), mean_rnn_outputs.float()), 1)
         logits = self.FinalFC( logit_X )
         logits = logits.squeeze(dim=-1)
         probs = self.final_act(logits)
@@ -252,3 +252,47 @@ class multimodal_transformer(nn.Module):
             l2_reg += param.norm(2)
         return l2_reg
 
+
+
+# 1: note-embedding 제거
+class mm_transformer_1(mm_transformer):
+
+    def __init__(self, txt_model_type, model_usage, BioBert, ts_model_type, device):
+        super(mm_transformer_1, self).__init__(txt_model_type, model_usage, BioBert, ts_model_type, device)
+        print('FC Layer override')
+        self.FinalFC = nn.Linear(self.emb_dim, 1, bias=False)
+
+    def forward(self, X, text, attns, times):
+        _, _, rnn_outputs = self.forward_internal(X, text, attns, times)
+        mean_rnn_outputs = rnn_outputs[:, 0, :] # (batch_size, self.emb_dim)
+        
+        # Classifier - Final FC layer
+        # Concatenating time-series and text embedding
+        logits = self.FinalFC( mean_rnn_outputs.float() )
+        logits = logits.squeeze(dim=-1)
+        probs = self.final_act(logits)
+        return logits, probs
+
+
+# 2: notes embedding 제거, ts embedding 추가
+class mm_transformer_2(mm_transformer):
+
+    def __init__(self, txt_model_type, model_usage, BioBert, ts_model_type, device):
+        super(mm_transformer_2, self).__init__(txt_model_type, model_usage, BioBert, ts_model_type, device)
+        
+        print('FC Layer override')
+        self.FinalFC = nn.Linear(self.emb_dim +  self.proj_size, 1, bias=False)
+
+    def forward(self, X, text, attns, times):
+        ts_embeddings, _, rnn_outputs = self.forward_internal(X, text, attns, times)
+        mean_ts_embeddings = torch.mean(ts_embeddings, axis=1) # (batch_size, 768)
+        mean_rnn_outputs = rnn_outputs[:, 0, :] # (batch_size, self.emb_dim)
+        
+        # Classifier - Final FC layer
+        # Concatenating time-series and text embedding
+        logit_X = torch.cat((mean_ts_embeddings.float(), mean_rnn_outputs.float()), 1)
+        logits = self.FinalFC(logit_X)
+        logits = logits.squeeze(dim=-1)
+        probs = self.final_act(logits)
+        return logits, probs
+    

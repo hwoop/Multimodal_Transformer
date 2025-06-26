@@ -191,9 +191,9 @@ def Read_Aggregate_data(mode, AggeragetNotesStrategies, discretizer=None, normal
             (data, names, discretizer, normalizer) = pickle.load(f)
     else:
         # If we did not already processed the data we do it here
-        ReaderPath = os.path.join(conf.ihm_path, 'train' if (mode == 'train') or mode == 'val' else 'test')
+        ReaderPath = os.path.join(conf.ihm_dataset_dir, 'train' if (mode == 'train') or mode == 'val' else 'test')
         reader = InHospitalMortalityReader(dataset_dir=ReaderPath,
-                                                  listfile=os.path.join(conf.ihm_path, mode + '_listfile.csv'), period_length=48.0)
+                                                  listfile=os.path.join(conf.ihm_dataset_dir, mode + '_listfile.csv'), period_length=48.0)
         
         if normalizer is None:
             discretizer = Discretizer(timestep=float(conf.timestep),
@@ -208,9 +208,9 @@ def Read_Aggregate_data(mode, AggeragetNotesStrategies, discretizer=None, normal
             
             # text reader for reading the texts
             if (mode == 'train') or (mode == 'val'):
-                text_reader = utils.TextReader(conf.textdata_fixed, conf.starttime_path)
+                text_reader = utils.TextReader(conf.textdataset_fixed_dir, conf.starttime_path)
             else:
-                text_reader = utils.TextReader(conf.test_textdata_fixed, conf.test_starttime_path)
+                text_reader = utils.TextReader(conf.test_textdataset_fixed_dir, conf.test_starttime_path)
             
             # choose here which columns to standardize
             normalizer = Normalizer(fields=cont_channels)

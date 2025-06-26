@@ -22,7 +22,7 @@ def get_args():
     parser.add_argument("--number_epoch", default="10", help="Number of epochs to train the model")
     parser.add_argument("--batch_size", default="5")
     parser.add_argument("--model_type", default='both', help="Which model to use, 'both' uses both the text model and time-series model, 'baseline' only uses time-series model, 'text_only' only uses text model")
-    parser.add_argument( "--checkpoint_path", help="Path for checkpointing", default='bs')
+    parser.add_argument("--checkpoint_path", help="Path for checkpointing", default='bs')
     parser.add_argument("--freeze_model", default="0")
     parser.add_argument('--TextModelCheckpoint', help='Checkpoint path for only text model to load')
     parser.add_argument('--TSModel', help='Model to use for time series part of data, the options are: 1. LSTM: LSTM model 2. BiLSTM: Bidirectional LSTM model 3. Transformer: Transformer on Time series.', default='LSTM')
@@ -34,7 +34,7 @@ def get_args():
     parser.add_argument("--model_name", default='BioBert', help="'BioBert' uses bert based models this achieves the best results")
 
     parser.add_argument('--Seed', help='Seed to use for both torch and np.random', type=int)
-    parser.add_argument('--LR', help='Learning rate to train the model', type=float, default=2e-5)
+    parser.add_argument('--learning_rate', help='Learning rate to train the model', type=float, default=2e-5)
 
     parser.add_argument("--log_file")
 
